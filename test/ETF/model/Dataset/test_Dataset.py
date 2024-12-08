@@ -9,7 +9,7 @@ from pandas import Index
 from src.ETF.cours.Cours import Cours
 from src.ETF.cours.CoursBuilder import CoursBuilder
 from src.ETF.modelPrediction.Dataset.DatasetShift import DatasetShift
-from src.ETF.modelPrediction.Dataset.DatasetVector import DatasetVector
+from src.ETF.modelPrediction.Dataset.SetVector import SetVector
 from src.service.TimeService import TimeService
 from src.util.constants.Frequency import Frequency
 from src.util.constants.UnitVectorDataframe import UnitVectorDataframe
@@ -38,18 +38,16 @@ def test_DatasetVectorWeekDays():
     cours: Cours = CoursBuilder.fromList(valuesList, date, Frequency.CALENDAR_DAY) # end : 07/04/2025 12h -> Lundi
 
     # WEEK_DAYS
-    dataset: DatasetVector = DatasetVector(cours=cours, shapeVector=UnitVectorDataframe.WEEK_DAYS)
-    coursTrain, coursTest = dataset.getCours()
-    assert coursTrain.getStart().toString() == '27-01-2025 00:00:00'
-    assert coursTrain.getEnd().toString() == '16-03-2025 00:00:00'
-    assert coursTest.getStart().toString() == '17-03-2025 00:00:00'
-    assert coursTest.getEnd().toString() == '30-03-2025 00:00:00'
+    dataset: SetVector = SetVector(cours=cours, shapeVector=UnitVectorDataframe.WEEK_DAYS)
+    cours = dataset.getCours()
+    assert cours.getStart().toString() == '27-01-2025 00:00:00'
+    assert cours.getEnd().toString() == '06-04-2025 00:00:00'
 
 
 def test_DatasetVectorWorkingWeekDays():
     # WORKINGDAYSWEEK_DAYS
 
-    valuesList: List = list(range(20 * 7))  # 77
+    valuesList: List = list(range(10 * 7))  # 77
     ts = pd.Series(valuesList)
     date = TimeService.fromString('21-01-2025 00:00:00')
     datesIndex: Index = pd.date_range(start=date.toString(),
@@ -60,19 +58,16 @@ def test_DatasetVectorWorkingWeekDays():
     cours: Cours = CoursBuilder.fromTimeSerie(ts, step=Frequency.CALENDAR_DAY)
 
     # ma missing row strategy doit retourner 0 mais necessite des valeurs dans la row (ne retourne pas 0 directement) pour le teste
-    dataset: DatasetVector = DatasetVector(cours=cours, shapeVector=UnitVectorDataframe.WORKINGDAYSWEEK_WEEK, missingValueStrategy=lambda row:row.mean() - row.mean())
-    coursTrain, coursTest = dataset.getCours()
-    assert coursTrain.getStart().toString() == '27-01-2025 00:00:00'
-    assert coursTrain.getEnd().toString() == '02-05-2025 00:00:00'
-    assert coursTest.getStart().toString() == '05-05-2025 00:00:00'
-    assert coursTest.getEnd().toString() == '30-05-2025 00:00:00'
+    dataset: SetVector = SetVector(cours=cours, shapeVector=UnitVectorDataframe.WORKINGDAYSWEEK_DAYS, missingValueStrategy=lambda row: row.mean() - row.mean())
+    cours = dataset.getCours()
+    assert cours.getStart().toString() == '27-01-2025 00:00:00'
+    assert cours.getEnd().toString() == '28-03-2025 00:00:00'
 
-    # si tout les jours de la semaine sont fournis et vendredi manquant ne dois pas etre remplace par un Samedi
-    # assert coursTrain.getValues()[pd.Timestamp('2025-02-10 00:00:00')] == 0
     # les weekend sont bien skipped:
-    assert coursTrain.getValues()[pd.Timestamp('2025-02-21 00:00:00')] == 31 # Vendredi
-    assert coursTrain.getValues()[pd.Timestamp('2025-02-24 00:00:00')] == 34 # Lundi
+    assert cours.getValues()[pd.Timestamp('2025-01-31 00:00:00')] == 10 # Vendredi
+    assert cours.getValues()[pd.Timestamp('2025-02-03 00:00:00')] == 13 # Lundi
 
+    assert dataset.getLabel().iloc[0,0] == (13 + 14 + 15 + 16 + 17) / 5
 
 def test_DatasetVectorMonthDays():
     # MONTH_DAYS
@@ -85,29 +80,26 @@ def test_DatasetVectorMonthDays():
     ts = pd.Series(valuesList)
     ts.index = datesIndex
 
+    # several value for 1 date
     ts["22-02-2025 00:00:00"] = 100
     ts["22-02-2025 04:00:00"] = 200
 
     cours: Cours = CoursBuilder.fromTimeSerie(ts, step=Frequency.CALENDAR_DAY)
 
-    dataset: DatasetVector = DatasetVector(cours=cours, shapeVector=UnitVectorDataframe.MONTH_DAYS, ratioSplitTest=0.4)
-    coursTrain, coursTest = dataset.getCours()
-    assert coursTrain.getStart().toString() == '01-02-2025 00:00:00'
-    assert coursTrain.getEnd().toString() == '31-07-2025 00:00:00'
-    assert coursTest.getStart().toString() == '01-08-2025 00:00:00'
-    assert coursTest.getEnd().toString() == '31-12-2025 00:00:00'
+    dataset: SetVector = SetVector(cours=cours, shapeVector=UnitVectorDataframe.MONTH_DAYS)
+    cours = dataset.getCours()
+    assert cours.getStart().toString() == '01-02-2025 00:00:00'
+    assert cours.getEnd().toString() == '31-01-2026 00:00:00'
 
-    trainTs = coursTrain.getValues()
-    trainTs.index = trainTs.index.strftime(TimeService.getTimeFormat())
+    ts = cours.getValues()
+    ts.index = ts.index.strftime(TimeService.getTimeFormat())
 
-    testTs = coursTest.getValues()
-    testTs.index = testTs.index.strftime(TimeService.getTimeFormat())
+    assert ts['31-03-2025 00:00:00'] == 69
+    assert ts['01-04-2025 00:00:00'] == 70
+    assert dataset.getDataFrame().iloc[1, 30] == 69
+    assert ts['28-02-2025 00:00:00'] == 38
+    assert ts['01-03-2025 00:00:00'] == 39
+    assert ts['22-02-2025 00:00:00'] == 150
+    assert ts['01-09-2025 00:00:00'] == 223
+    assert ts['30-09-2025 00:00:00'] == 252
 
-    assert trainTs['31-03-2025 00:00:00'] == 69
-    assert trainTs['01-04-2025 00:00:00'] == 70
-    assert dataset.getXTrain().iloc[1, 30] == 69
-    assert trainTs['28-02-2025 00:00:00'] == 38
-    assert trainTs['01-03-2025 00:00:00'] == 39
-    assert trainTs['22-02-2025 00:00:00'] == 150
-    assert testTs['01-09-2025 00:00:00'] == 223
-    assert testTs['30-09-2025 00:00:00'] == 252

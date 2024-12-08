@@ -21,9 +21,9 @@ class Frequency(Enum):
         formats = {
             Frequency.BUSINESS_DAY: "B",
             Frequency.WEEKDAYS: "D",
-            Frequency.MONTH_END: "M",
+            Frequency.MONTH_END: "ME",
             Frequency.CALENDAR_DAY: "D",
-            Frequency.WEEKLY:"W"
+            Frequency.WEEKLY:"W-MON"
         }
         return formats.get(self, "unknown frequency")
 

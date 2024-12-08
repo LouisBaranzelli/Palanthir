@@ -6,19 +6,17 @@ from pandas import DatetimeIndex, Index
 
 from src.ETF.cours.Cours import Cours
 from src.ETF.cours.CoursBuilder import CoursBuilder
-from src.ETF.modelPrediction.Dataset.IDataset import IDataset
 from src.service.LogService import LogService
 from src.service.TimeService import TimeService
 from src.util.constants.UnitVectorDataframe import UnitVectorDataframe
 from src.util.constants.UpDown import UpDown
 
 
-class DatasetVector(IDataset):
+class SetVector():
     def __init__(self, cours: Cours, shapeVector: UnitVectorDataframe,
-                 severalValueMatching:Callable[[pd.Series], float] = lambda row:row.mean(),
-                 missingValueStrategy: Callable[[pd.Series], float] = lambda row:0 ,
-                 yValueStrategy: Callable[[pd.Series], float] = lambda row: row.mean(),
-                 ratioSplitTest=0.2):
+                 severalValueMatching: Callable[[pd.Series], float] = lambda row: row.mean(),
+                 missingValueStrategy: Callable[[pd.Series], float] = lambda row: 0,
+                 yValueStrategy: Callable[[pd.Series], float] = lambda row: row.mean()):
 
         '''
         Objectif
@@ -40,8 +38,6 @@ class DatasetVector(IDataset):
         :param severalValueMatching: Strategie dans le cas ou plusieurs valeurs correspondent a une date du Vecteur
         :param missingValueStrategy: Strategie pour ajouter lors de l'ajout de valeurs des dates creees
         :param yValueStrategy: Strategie pour labeliser la row n sur la base de la row n+1
-        :param ratioSplitTest:
-
         '''
 
         LogService.info(f"[DatasetVector] Attempt to create DatasetVector, shape: {shapeVector}")
@@ -60,12 +56,12 @@ class DatasetVector(IDataset):
         lastDate: TimeService = self.__cours.getEnd().round(unit=self.__rowFrequency, upDown=UpDown.Down)
         LogService.debug(f"[DatasetVector] First Date: {firstDate.toString()}, Last Date: {lastDate.toString()}")
         if firstDate.isAfter(lastDate):
-            raise Exception(f"Round: {self.__rowFrequency}. First date {cours.getStart().toString()}, rounded in {self.__firstDate.toString()} is after last date {cours.getEnd().toString()} rounded in {lastDate.toString()}:")
+            raise Exception(
+                f"Round: {self.__rowFrequency}. First date {cours.getStart().toString()}, rounded in {self.__firstDate.toString()} is after last date {cours.getEnd().toString()} rounded in {lastDate.toString()}:")
 
         # Cree le df avec le bon nombre de lignes et de colones
         nbrLigne: int = TimeService.getNumbersOfEnumBetweenTime(self.__rowFrequency, firstDate, lastDate)
         nbrColonne: int = len(self.__shapeVector.getColumnsIndex())
-        LogService.debug(f"[DatasetVector] Final dimension of the dataframe col: {nbrColonne}, row: {nbrLigne}")
 
         if any(val in [nbrLigne, nbrColonne] for val in [0, 1]):
             raise Exception(f"Not enought data to make the dataframe of vector: col: {nbrColonne}, row: {nbrLigne}")
@@ -74,19 +70,18 @@ class DatasetVector(IDataset):
         self.__firstDateTimeStamp = pd.to_datetime(firstDate.toString(), format=TimeService.getTimeFormat())
         dates = pd.date_range(start=self.__firstDateTimeStamp, periods=nbrLigne, freq=self.__rowFrequency.getValue())
 
-        df = pd.DataFrame(None, index=dates, columns=[f"{self.__colFrequency.getLabel()} {indexCol}" for indexCol in range(nbrColonne)])
+        df = pd.DataFrame(None, index=dates,
+                          columns=[f"{self.__colFrequency.getLabel()} {indexCol}" for indexCol in range(nbrColonne)])
         df.index = pd.to_datetime(df.index, format=self.__rowFrequency.getDatetimeIndexFormat())
-        df = self.__fillDataframe(df)
+        self.__df = self.__fillDataframe(df)
 
-        df['y'] = df.apply(lambda row: row.mean(), axis=1)
-        df['y']  = df['y'] .shift(-1)
-        df = df.iloc[:-1] # derniere ligne invalide car y = nan
-        # ! self.__df ne contient pas les valeurs Y car dimension importante pour generer les indexs du cours
-        self.__df = df.iloc[:,:-1].copy()
-        super().__init__(df, ratioSplitTest)
-        LogService.info(f"[DatasetVector] Completed")
+        dfLabel: pd.DataFrame = pd.DataFrame()
+        dfLabel['y'] = df.apply(self.__yValueStrategy, axis=1)
+        self.__dfLabel = dfLabel.shift(-1)
 
-    def __fillDataframe(self,df: pd.DataFrame):
+        LogService.debug(f"[DatasetVector]Completed. Final dimension of the dataframe, row: {df.shape[0]},  col: {df.shape[1]}")
+
+    def __fillDataframe(self, df: pd.DataFrame):
 
         '''
         Méthode interne pour remplir et compléter le DataFrame. Il s'agit de vecteurs de même taille représentant des
@@ -97,7 +92,8 @@ class DatasetVector(IDataset):
         datesIndexCol = self.__shapeVector.getColumnsIndex()
 
         rowDatetimeIndexFormat = self.__rowFrequency.getDatetimeIndexFormat()
-        colDatetimeIndexFormat = self.__colFrequency.getDatetimeIndexFormat(light=True)  # light: not 12/12/2022 mais seulement 12
+        colDatetimeIndexFormat = self.__colFrequency.getDatetimeIndexFormat(
+            light=True)  # light: not 12/12/2022 mais seulement 12
         if None in [rowDatetimeIndexFormat, colDatetimeIndexFormat]:
             raise Exception(f"Unknown format associated to enum: {self.__rowFrequency}")
 
@@ -105,7 +101,8 @@ class DatasetVector(IDataset):
         self.__unexistingValueToFilter: list = []
 
         # Toutes les date qui devront etre presentes dans la serie finale
-        allDates: Index = pd.date_range(start=self.__firstDateTimeStamp, periods=df.shape[0]*df.shape[1], freq=self.__colFrequency.getValue())
+        allDates: Index = pd.date_range(start=self.__firstDateTimeStamp, periods=df.shape[0] * df.shape[1],
+                                        freq=self.__colFrequency.getValue())
 
         for i, (indexRow, row) in enumerate(df.iterrows()):
             for indexCol, (_, value) in enumerate(row.items()):
@@ -113,16 +110,18 @@ class DatasetVector(IDataset):
                     (coursValues.index.strftime(rowDatetimeIndexFormat) == indexRow.strftime(rowDatetimeIndexFormat)) &
                     (coursValues.index.strftime(colDatetimeIndexFormat) == datesIndexCol[indexCol])]
                 if not result.empty:
-                    row[indexCol] = self.__severalValueMatchingStrategy(result)
+                    row.iloc[indexCol] = self.__severalValueMatchingStrategy(result)
                 else:
                     # si pas present soit date valide et donnee manquante soit date invalide
-                    resultExist = ((allDates.strftime(rowDatetimeIndexFormat) == indexRow.strftime(rowDatetimeIndexFormat)) &
-                    (allDates.strftime(colDatetimeIndexFormat) == datesIndexCol[indexCol]))
-                    if resultExist.any(): # cas ou la date est correcte mais la donnee est manquante
-                        raise Exception (f'Missing Value: {indexRow.strftime(rowDatetimeIndexFormat)} {datesIndexCol[indexCol]}')
-                    else: # cas ou  la date n'existe pas (31 Fevrier)
-                        row[indexCol] = self.__missingValueStrategy(row)
-                        if row[indexCol] == np.nan:
+                    resultExist = ((allDates.strftime(rowDatetimeIndexFormat) == indexRow.strftime(
+                        rowDatetimeIndexFormat)) &
+                                   (allDates.strftime(colDatetimeIndexFormat) == datesIndexCol[indexCol]))
+                    if resultExist.any():  # cas ou la date est correcte mais la donnee est manquante
+                        raise Exception(
+                            f'Missing Value: {indexRow.strftime(rowDatetimeIndexFormat)} {datesIndexCol[indexCol]}')
+                    else:  # cas ou  la date n'existe pas (31 Fevrier)
+                        row.iloc[indexCol] = self.__missingValueStrategy(row)
+                        if row.iloc[indexCol] == np.nan:
                             raise Exception("A non-existing date can not be replaced by Nan Value")
                         self.__unexistingValueToFilter.append((i, indexCol))
 
@@ -132,7 +131,7 @@ class DatasetVector(IDataset):
 
         return df
 
-    def getCours(self) -> Tuple[Cours, Cours]:
+    def getCours(self) -> Cours:
         '''
         Retourne les cours issus des Dataframe avec les index initiaux
         :return: Train cours, Validation cours
@@ -140,30 +139,31 @@ class DatasetVector(IDataset):
 
         # Creation des indexs a filtrer
         indexValuesToFilter = [r * self.__df.shape[1] + c for r, c in self.__unexistingValueToFilter]
-        dfTrain = super().getXTrain().T.melt().iloc[:,1]
-        indexTrainToFilters = [indexValueToFilter for indexValueToFilter in indexValuesToFilter if indexValueToFilter < len(dfTrain)]
 
-        dfTest = super().getXTest().T.melt().iloc[:,1]
-        indexValuesToFilter = [i - len(dfTrain) for i in indexValuesToFilter]
-        indexTestToFilters = [indexValueToFilter for indexValueToFilter in indexValuesToFilter if
-                              indexValueToFilter >= 0]
+        df = self.__df.T.melt().iloc[:, 1]
+        indexToFilters = [indexValueToFilter for indexValueToFilter in indexValuesToFilter if indexValueToFilter < len(df)]
 
         # Suppression des dates impossible comme le 31 Fevrier
-        for indexTrainToFilter in indexTrainToFilters:
-            dfTrain.iloc[indexTrainToFilter] = np.nan
-        dfTrain = dfTrain.dropna() # dropna pour supprimer d'un coup toutes les valeurs inutiles
-
-        for indexTestToFilter in indexTestToFilters:
-            dfTest.iloc[indexTestToFilter] = np.nan
-        dfTest = dfTest.dropna()
+        for indexToFilter in indexToFilters:
+            df.iloc[indexToFilter] = np.nan
+        df = df.dropna()  # dropna pour supprimer d'un coup toutes les valeurs inutiles
 
         # Ajout des indexes
-        datesIndex: Index = pd.date_range(start=self.__firstDateTimeStamp, periods=len(dfTrain) + len(dfTest),
+        datesIndex: Index = pd.date_range(start=self.__firstDateTimeStamp, periods=len(df),
                                           freq=self.__shapeVector.getColFrequency().getValue())
-        dateIndexTrain = datesIndex[:len(dfTrain)]
-        dateIndexTest = datesIndex[len(dfTrain):]
+        dateIndex = datesIndex[:len(df)]
 
-        dfTrain.index = dateIndexTrain
-        dfTest.index = dateIndexTest
-        return CoursBuilder.fromTimeSerie(dfTrain, self.__colFrequency, sanityCheck=False), CoursBuilder.fromTimeSerie(dfTest, self.__colFrequency, sanityCheck=False)
+        df.index = dateIndex
+        return CoursBuilder.fromTimeSerie(df, self.__colFrequency, sanityCheck=False)
 
+    def getShapeVector(self) -> UnitVectorDataframe:
+        return self.__shapeVector
+
+    def getDataFrame(self) -> pd.DataFrame:
+        return self.__df
+
+    def getLabel(self) -> pd.DataFrame:
+        return self.__dfLabel
+
+    def getDimInput(self) -> int:
+        return self.__shapeVector.getUnitLength()
