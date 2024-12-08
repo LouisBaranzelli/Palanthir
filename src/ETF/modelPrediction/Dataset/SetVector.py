@@ -6,13 +6,15 @@ from pandas import DatetimeIndex, Index
 
 from src.ETF.cours.Cours import Cours
 from src.ETF.cours.CoursBuilder import CoursBuilder
+from src.ETF.modelPrediction.Dataset.IDataset import IDataset
 from src.service.LogService import LogService
 from src.service.TimeService import TimeService
 from src.util.constants.UnitVectorDataframe import UnitVectorDataframe
 from src.util.constants.UpDown import UpDown
 
 
-class SetVector():
+class SetVector(IDataset):
+
     def __init__(self, cours: Cours, shapeVector: UnitVectorDataframe,
                  severalValueMatching: Callable[[pd.Series], float] = lambda row: row.mean(),
                  missingValueStrategy: Callable[[pd.Series], float] = lambda row: 0,
@@ -159,7 +161,7 @@ class SetVector():
     def getShapeVector(self) -> UnitVectorDataframe:
         return self.__shapeVector
 
-    def getDataFrame(self) -> pd.DataFrame:
+    def getData(self) -> pd.DataFrame:
         return self.__df
 
     def getLabel(self) -> pd.DataFrame:
@@ -167,3 +169,6 @@ class SetVector():
 
     def getDimInput(self) -> int:
         return self.__shapeVector.getUnitLength()
+
+    def run(self, dataset: 'IDataset') -> 'IDataset':
+        pass

@@ -5,33 +5,35 @@ from sklearn.model_selection import train_test_split
 
 from src.ETF.cours import Cours
 
+from abc import ABC, abstractmethod
 
-class IDataset:
 
-    def __init__(self, df: pd.DataFrame, ratioSplitTest=0.2):
+class IDataset(ABC):
+    """
+    Classe abstraite représentant un dataset.
+    """
 
-        if df.isna().any().any():
-            raise Exception("Le dataframe contient des NaN Value et va decaler les indexes")
+    @abstractmethod
+    def getDimInput(self) -> int:
+        """
+        Méthode abstraite pour obtenir la taille initiale du vecteur requis dans la liste chainee des datasets
+        :return: Un entier représentant la dimension.
+        """
+        pass
 
-        dfXTrain, dfXTest = train_test_split(df, test_size=ratioSplitTest, shuffle=False)
+    @abstractmethod
+    def run(self, dataset: 'IDataset') -> 'IDataset':
+        "Methode qui sera appelee lors du chainage"
+        pass
 
-        self.__X_train: pd.DataFrame = dfXTrain.iloc[:, :-1]
-        self.__y_train: pd.Series = dfXTrain.iloc[:, -1]
-        self.__X_test: pd.DataFrame = dfXTest.iloc[:, :-1]
-        self.__y_test: pd.Series = dfXTest.iloc[:, -1]
+    @abstractmethod
+    def getData(self) -> pd.DataFrame:
+        "Valeur vectorisee sans les labels"
+        pass
 
-    def getXTrain(self) -> pd.DataFrame:
-        return self.__X_train
 
-    # def getYTrain(self) -> pd.DataFrame:
-    #     return self.__y_train
-
-    def getXTest(self) -> pd.DataFrame:
-        return self.__X_test
-
-    # def getYTest(self) -> pd.DataFrame:
-    #     return self.__y_test
-
-    def getCours(self) -> Cours:
+    @abstractmethod
+    def getLabel(self) -> pd.DataFrame:
+        "Le Label mis a jours en fonction des transformations apportees au dataset"
         pass
 
